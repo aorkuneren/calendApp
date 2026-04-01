@@ -134,6 +134,15 @@ const INITIAL_BUNGALOWS = [
   },
 ]
 
+function canUseLocalDemoData() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const hostname = window.location.hostname
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
 async function requestApi(path, options = {}) {
   const { method = 'GET', body } = options
   const response = await fetch(path, {
@@ -558,7 +567,7 @@ function App() {
   const [isEventModalOpen, setIsEventModalOpen] = useState(false)
   const [bungalowName, setBungalowName] = useState('')
   const [nightlyPrice, setNightlyPrice] = useState('')
-  const [bungalows, setBungalows] = useState(() => INITIAL_BUNGALOWS)
+  const [bungalows, setBungalows] = useState(() => (canUseLocalDemoData() ? INITIAL_BUNGALOWS : []))
   const [customEvents, setCustomEvents] = useState([])
   const [eventCustomerName, setEventCustomerName] = useState('')
   const [eventCheckIn, setEventCheckIn] = useState(() => toInputDate(INITIAL_DATE))
@@ -875,7 +884,15 @@ function App() {
           return
         }
 
-        console.error('Turso verisi yüklenemedi. Lokal demo veri ile devam ediliyor.', error)
+        const fallbackAllowed = canUseLocalDemoData()
+        if (fallbackAllowed) {
+          console.error('Turso verisi yüklenemedi. Lokal demo veri ile devam ediliyor.', error)
+          setBungalows(INITIAL_BUNGALOWS)
+        } else {
+          console.error('Turso verisi yüklenemedi. Production ortamında demo veri kapalı.', error)
+          setBungalows([])
+          setCustomEvents([])
+        }
         setIsApiConnected(false)
       }
     }
@@ -1355,6 +1372,11 @@ function App() {
       return
     }
 
+    if (!canUseLocalDemoData()) {
+      window.alert('Sunucu bağlantısı kurulamadı. İşlem için API erişimi gerekli.')
+      return
+    }
+
     if (isEditingBungalow && editingBungalow) {
       setBungalows((current) =>
         current.map((bungalow) =>
@@ -1432,6 +1454,11 @@ function App() {
       return
     }
 
+    if (!canUseLocalDemoData()) {
+      window.alert('Sunucu bağlantısı kurulamadı. İşlem için API erişimi gerekli.')
+      return
+    }
+
     setBungalows((current) => current.filter((bungalow) => bungalow.id !== editingBungalow.id))
     setSelectedBungalowFilterId((current) => (current === editingBungalow.id ? '' : current))
     setEventBungalowId((current) => (current === editingBungalow.id ? '' : current))
@@ -1490,6 +1517,11 @@ function App() {
       } catch (error) {
         window.alert(getApiErrorMessage(error, 'Rezervasyon kaydedilemedi.'))
       }
+      return
+    }
+
+    if (!canUseLocalDemoData()) {
+      window.alert('Sunucu bağlantısı kurulamadı. İşlem için API erişimi gerekli.')
       return
     }
 
