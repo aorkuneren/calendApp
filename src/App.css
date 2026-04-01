@@ -16,6 +16,49 @@
   overflow: auto;
 }
 
+.device-block-screen {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #f1f3f4;
+}
+
+.device-block-card {
+  width: min(460px, calc(100% - 4px));
+  border-radius: 12px;
+  border: 1px solid #dde1e6;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(60, 64, 67, 0.3);
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.device-block-card h1 {
+  margin: 0;
+  color: #3c4043;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 500;
+}
+
+.device-block-title {
+  margin: 10px 0 0;
+  color: #202124;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 500;
+}
+
+.device-block-description {
+  margin: 8px 0 0;
+  color: #5f6368;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .auth-card {
   width: min(420px, calc(100% - 4px));
   border-radius: 12px;

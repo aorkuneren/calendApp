@@ -143,6 +143,21 @@ function canUseLocalDemoData() {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
+function isMobileClient() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const userAgent = window.navigator.userAgent ?? ''
+  const userAgentDataMobile = window.navigator.userAgentData?.mobile === true
+  const mobileUserAgentPattern = /android|iphone|ipad|ipod|mobile|blackberry|iemobile|opera mini/i
+  const pointerIsCoarse = window.matchMedia?.('(pointer: coarse)')?.matches ?? false
+  const shortestViewport = Math.min(window.innerWidth || 0, window.innerHeight || 0)
+  const mobileLikeViewport = shortestViewport > 0 && shortestViewport <= 900
+
+  return userAgentDataMobile || mobileUserAgentPattern.test(userAgent) || (pointerIsCoarse && mobileLikeViewport)
+}
+
 async function requestApi(path, options = {}) {
   const { method = 'GET', body, allowStatuses = [] } = options
   const response = await fetch(path, {
@@ -599,6 +614,7 @@ function App() {
   const [editingEventId, setEditingEventId] = useState('')
   const [isBungalowDeleteConfirmOpen, setIsBungalowDeleteConfirmOpen] = useState(false)
   const [authStatus, setAuthStatus] = useState('loading')
+  const [isMobileBlocked, setIsMobileBlocked] = useState(() => isMobileClient())
   const [currentUser, setCurrentUser] = useState(null)
   const [loginEmail, setLoginEmail] = useState('admin@adenbungalov.com')
   const [loginPassword, setLoginPassword] = useState('')
@@ -879,9 +895,41 @@ function App() {
   }
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const updateMobileBlockState = () => {
+      setIsMobileBlocked(isMobileClient())
+    }
+
+    updateMobileBlockState()
+    window.addEventListener('resize', updateMobileBlockState)
+    window.addEventListener('orientationchange', updateMobileBlockState)
+
+    return () => {
+      window.removeEventListener('resize', updateMobileBlockState)
+      window.removeEventListener('orientationchange', updateMobileBlockState)
+    }
+  }, [])
+
+  useEffect(() => {
     let isMounted = true
 
     const loadInitialData = async () => {
+      if (isMobileBlocked) {
+        if (!isMounted) {
+          return
+        }
+
+        setCurrentUser(null)
+        setBungalows([])
+        setCustomEvents([])
+        setLoginError('')
+        setIsApiConnected(null)
+        return
+      }
+
       try {
         const authResponse = await requestApi('/api/auth/me', { allowStatuses: [401] })
         if (!isMounted) {
@@ -964,7 +1012,7 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [isMobileBlocked])
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -1913,6 +1961,20 @@ function App() {
       </footer>
     </>
   )
+
+  if (isMobileBlocked) {
+    return (
+      <div className="device-block-screen">
+        <section className="device-block-card" role="alert" aria-live="polite">
+          <h1>Aden | Rezervasyon Takvimi</h1>
+          <p className="device-block-title">Lütfen Bilgisayarınızdan kullanın.</p>
+          <p className="device-block-description">
+            Bu uygulama mobil cihazlarda kapalıdır. Masaüstü veya laptop ile giriş yapabilirsiniz.
+          </p>
+        </section>
+      </div>
+    )
+  }
 
   if (authStatus === 'loading') {
     return (
