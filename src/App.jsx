@@ -1090,6 +1090,34 @@ function App() {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [isEventModalOpen])
 
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined
+    }
+
+    const isAnyModalOpen = isBungalowModalOpen || isEventModalOpen || isBungalowDeleteConfirmOpen
+    if (!isAnyModalOpen) {
+      return undefined
+    }
+
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverflow = document.body.style.overflow
+    const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior
+    const previousBodyOverscroll = document.body.style.overscrollBehavior
+
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overscrollBehavior = 'none'
+    document.body.style.overscrollBehavior = 'none'
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overflow = previousBodyOverflow
+      document.documentElement.style.overscrollBehavior = previousHtmlOverscroll
+      document.body.style.overscrollBehavior = previousBodyOverscroll
+    }
+  }, [isBungalowModalOpen, isEventModalOpen, isBungalowDeleteConfirmOpen])
+
   const openRightPanelForDate = (day) => {
     const dayKey = toDateKey(day)
     const dayEvents = eventsByDate[dayKey] ?? []

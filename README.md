@@ -63,6 +63,13 @@ Uygulama ilk API çağrısında otomatik olarak:
    - `APP_PASSWORD_PEPPER` (opsiyonel)
 3. Deploy edin.
 
+## PWA
+
+- Uygulama `manifest.webmanifest` ve `sw.js` ile PWA olarak yapılandırılmıştır.
+- Production ortamında service worker otomatik kaydolur.
+- Mobilde ana ekrana eklenerek uygulama gibi (standalone) çalışır.
+- Offline durumda son yüklenen statik arayüz cache üzerinden açılır.
+
 ## API Uçları
 
 - `POST /api/auth/login`
