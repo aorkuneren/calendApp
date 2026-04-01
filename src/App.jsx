@@ -144,7 +144,7 @@ function canUseLocalDemoData() {
 }
 
 async function requestApi(path, options = {}) {
-  const { method = 'GET', body } = options
+  const { method = 'GET', body, allowStatuses = [] } = options
   const response = await fetch(path, {
     method,
     credentials: 'include',
@@ -163,14 +163,17 @@ async function requestApi(path, options = {}) {
   }
 
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
+  if (!response.ok && !allowStatuses.includes(response.status)) {
     const error = new Error(payload.message || 'Sunucu hatası')
     error.status = response.status
     error.payload = payload
     throw error
   }
 
-  return payload
+  return {
+    ...payload,
+    __status: response.status,
+  }
 }
 
 function getApiErrorMessage(error, fallbackMessage) {
@@ -880,8 +883,18 @@ function App() {
 
     const loadInitialData = async () => {
       try {
-        const authResponse = await requestApi('/api/auth/me')
+        const authResponse = await requestApi('/api/auth/me', { allowStatuses: [401] })
         if (!isMounted) {
+          return
+        }
+
+        if (authResponse.__status === 401) {
+          setCurrentUser(null)
+          setAuthStatus('unauthenticated')
+          setLoginError('')
+          setBungalows([])
+          setCustomEvents([])
+          setIsApiConnected(true)
           return
         }
 
@@ -920,16 +933,6 @@ function App() {
         }
       } catch (error) {
         if (!isMounted) {
-          return
-        }
-
-        if (error?.status === 401) {
-          setCurrentUser(null)
-          setAuthStatus('unauthenticated')
-          setLoginError('')
-          setBungalows([])
-          setCustomEvents([])
-          setIsApiConnected(true)
           return
         }
 
