@@ -1,15 +1,21 @@
 import { randomUUID } from 'node:crypto'
+import { requireAuth } from '../_lib/auth.js'
 import { getBungalows, getDb, mapBungalowRow, resolveColorForNewBungalow } from '../_lib/db.js'
 import { json, methodNotAllowed, readJsonBody } from '../_lib/http.js'
 
 export default async function handler(req, res) {
+  const session = requireAuth(req, res)
+  if (!session) {
+    return
+  }
+
   if (req.method === 'GET') {
     try {
       const db = await getDb()
       const bungalows = await getBungalows(db)
       json(res, 200, { bungalows })
-    } catch (error) {
-      json(res, 500, { error: 'DB_READ_FAILED', message: error.message })
+    } catch {
+      json(res, 500, { error: 'DB_READ_FAILED', message: 'Bungalovlar okunamadı.' })
     }
     return
   }
@@ -52,8 +58,8 @@ export default async function handler(req, res) {
       })
 
       json(res, 201, { bungalow: mapBungalowRow(rows[0]) })
-    } catch (error) {
-      json(res, 500, { error: 'DB_WRITE_FAILED', message: error.message })
+    } catch {
+      json(res, 500, { error: 'DB_WRITE_FAILED', message: 'Bungalov kaydedilemedi.' })
     }
     return
   }

@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { createClient } from '@libsql/client'
+import { hashPassword } from './auth.js'
 
 const SHARP_COLORS = [
   '#0057ff',
@@ -26,6 +28,11 @@ const INITIAL_BUNGALOWS = [
   { id: 'seed-bungalov-10', name: 'Aden White Suit No.10', price: '5960', status: 'aktif', color: '#00e5ff' },
 ]
 
+const DEFAULT_ADMIN_EMAIL = 'admin@adenbungalov.com'
+const DEFAULT_ADMIN_PASSWORD = 'J9dmzyxe7'
+const DEFAULT_ADMIN_PASSWORD_HASH =
+  'scrypt$16384$8$1$w3JNrUsDdB9pRk6cSn27Dw$BhIFOVQRriXWm_didDz8kUiT8XX5qC_c6Gcoh4wFLVDpA4CFH1u1qy1WoggdBDcGHR8xUrzMwNBabv5FVsJFTw'
+
 const databaseUrl = process.env.TURSO_DATABASE_URL
 const authToken = process.env.TURSO_AUTH_TOKEN
 
@@ -39,6 +46,14 @@ const client = createClient({
 })
 
 let bootstrapPromise = null
+
+function toCount(value) {
+  return typeof value === 'number' ? value : Number(value ?? 0)
+}
+
+export function normalizeEmail(email) {
+  return String(email ?? '').trim().toLowerCase()
+}
 
 function createUniqueRandomColor(existingColors) {
   const usedColors = new Set(existingColors.map((color) => (color ?? '').toLowerCase()).filter(Boolean))
@@ -97,12 +112,23 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_reservations_check_dates
     ON reservations (check_in, check_out)
   `)
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'admin',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
 }
 
 async function ensureSeedData() {
   const { rows } = await client.execute('SELECT COUNT(*) as count FROM bungalows')
-  const countValue = rows?.[0]?.count
-  const rowCount = typeof countValue === 'number' ? countValue : Number(countValue ?? 0)
+  const rowCount = toCount(rows?.[0]?.count)
 
   if (rowCount > 0) {
     return
@@ -119,9 +145,45 @@ async function ensureSeedData() {
   }
 }
 
+async function ensureAdminUser() {
+  const email = normalizeEmail(process.env.SEED_ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL)
+  const configuredPasswordHash = String(process.env.SEED_ADMIN_PASSWORD_HASH ?? '').trim()
+  const configuredPassword = String(process.env.SEED_ADMIN_PASSWORD ?? '').trim()
+  const hasPepper = String(process.env.APP_PASSWORD_PEPPER ?? '').length > 0
+  const passwordHash =
+    configuredPasswordHash ||
+    (configuredPassword
+      ? hashPassword(configuredPassword)
+      : hasPepper
+        ? hashPassword(DEFAULT_ADMIN_PASSWORD)
+        : DEFAULT_ADMIN_PASSWORD_HASH)
+
+  if (!email || !passwordHash) {
+    return
+  }
+
+  const { rows } = await client.execute({
+    sql: 'SELECT id FROM users WHERE email = ? LIMIT 1',
+    args: [email],
+  })
+
+  if (rows.length > 0) {
+    return
+  }
+
+  await client.execute({
+    sql: `
+      INSERT INTO users (id, email, password_hash, role, is_active)
+      VALUES (?, ?, ?, 'admin', 1)
+    `,
+    args: [randomUUID(), email, passwordHash],
+  })
+}
+
 async function bootstrap() {
   await ensureSchema()
   await ensureSeedData()
+  await ensureAdminUser()
 }
 
 export async function getDb() {
@@ -156,6 +218,14 @@ export function mapReservationRow(row) {
     checkIn: row.check_in,
     checkOut: row.check_out,
     description: row.description ?? '',
+  }
+}
+
+export function mapUserRow(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role ?? 'admin',
   }
 }
 
@@ -199,11 +269,50 @@ export async function hasOverlappingReservation(db, { reservationId = null, bung
       FROM reservations
       WHERE bungalow_id = ?
         AND (? IS NULL OR id != ?)
-        AND NOT (? < check_in OR ? > check_out)
+        AND check_in < ?
+        AND check_out > ?
       LIMIT 1
     `,
     args: [bungalowId, reservationId, reservationId, checkOut, checkIn],
   })
 
   return rows.length > 0
+}
+
+export async function getUserByEmail(db, email) {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail) {
+    return null
+  }
+
+  const { rows } = await db.execute({
+    sql: `
+      SELECT id, email, password_hash, role, is_active
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+    `,
+    args: [normalizedEmail],
+  })
+
+  return rows[0] ?? null
+}
+
+export async function getUserById(db, userId) {
+  const id = String(userId ?? '').trim()
+  if (!id) {
+    return null
+  }
+
+  const { rows } = await db.execute({
+    sql: `
+      SELECT id, email, password_hash, role, is_active
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `,
+    args: [id],
+  })
+
+  return rows[0] ?? null
 }

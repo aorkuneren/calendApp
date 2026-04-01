@@ -147,6 +147,7 @@ async function requestApi(path, options = {}) {
   const { method = 'GET', body } = options
   const response = await fetch(path, {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -174,6 +175,10 @@ async function requestApi(path, options = {}) {
 
 function getApiErrorMessage(error, fallbackMessage) {
   const apiErrorCode = error?.payload?.error
+
+  if (apiErrorCode === 'UNAUTHORIZED') {
+    return 'Oturum süresi doldu. Lütfen tekrar giriş yapın.'
+  }
 
   if (apiErrorCode === 'BUNGALOW_HAS_RESERVATIONS') {
     return 'Bu bungalova bağlı rezervasyonlar olduğu için silinemez.'
@@ -264,6 +269,17 @@ function nextInputDate(value) {
 
   parsedDate.setDate(parsedDate.getDate() + 1)
   return toDateKey(parsedDate)
+}
+
+function getReservationRangeBounds(event) {
+  const start = clearTime(new Date(event.checkIn))
+  const endExclusive = clearTime(new Date(event.checkOut))
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime()) || endExclusive <= start) {
+    return null
+  }
+
+  return { start, endExclusive }
 }
 
 function toSoftEventBackground(colorValue) {
@@ -579,6 +595,12 @@ function App() {
   const [editingBungalowId, setEditingBungalowId] = useState('')
   const [editingEventId, setEditingEventId] = useState('')
   const [isBungalowDeleteConfirmOpen, setIsBungalowDeleteConfirmOpen] = useState(false)
+  const [authStatus, setAuthStatus] = useState('loading')
+  const [currentUser, setCurrentUser] = useState(null)
+  const [loginEmail, setLoginEmail] = useState('admin@adenbungalov.com')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
   const [isApiConnected, setIsApiConnected] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const searchInputRef = useRef(null)
@@ -621,19 +643,14 @@ function App() {
     const merged = {}
 
     calendarEvents.forEach((event) => {
-      const start = clearTime(new Date(event.checkIn))
-      const endInclusive = clearTime(new Date(event.checkOut))
-
-      if (
-        Number.isNaN(start.getTime()) ||
-        Number.isNaN(endInclusive.getTime()) ||
-        endInclusive <= start
-      ) {
+      const rangeBounds = getReservationRangeBounds(event)
+      if (!rangeBounds) {
         return
       }
+      const { start, endExclusive } = rangeBounds
 
-      const durationDays = diffInDays(start, endInclusive) + 1
-      for (let cursor = start; cursor <= endInclusive; cursor = addDays(cursor, 1)) {
+      const durationDays = diffInDays(start, endExclusive)
+      for (let cursor = start; cursor < endExclusive; cursor = addDays(cursor, 1)) {
         const dateKey = toDateKey(cursor)
         if (!merged[dateKey]) {
           merged[dateKey] = []
@@ -677,23 +694,17 @@ function App() {
         const weekSegments = []
 
         calendarEvents.forEach((event) => {
-          const eventStart = clearTime(new Date(event.checkIn))
-          const eventEndInclusive = clearTime(new Date(event.checkOut))
-          const eventSearchText = `${event.title} ${event.description}`.toLowerCase()
-
-          if (
-            Number.isNaN(eventStart.getTime()) ||
-            Number.isNaN(eventEndInclusive.getTime()) ||
-            eventEndInclusive <= eventStart
-          ) {
+          const rangeBounds = getReservationRangeBounds(event)
+          if (!rangeBounds) {
             return
           }
+          const { start: eventStart, endExclusive: eventEndExclusive } = rangeBounds
+          const eventSearchText = `${event.title} ${event.description}`.toLowerCase()
 
           if (hasSearch && !eventSearchText.includes(searchValue)) {
             return
           }
 
-          const eventEndExclusive = addDays(eventEndInclusive, 1)
           const segmentStart = eventStart > weekStart ? eventStart : weekStart
           const segmentEndExclusive = eventEndExclusive < weekEndExclusive ? eventEndExclusive : weekEndExclusive
 
@@ -765,6 +776,8 @@ function App() {
   const rightPanelTooltip = isRightPanelVisible
     ? 'Rezervasyon Alanını Gizle'
     : 'Rezervasyon Alanını Göster'
+  const isAuthenticated = authStatus === 'authenticated' || authStatus === 'demo'
+  const avatarLabel = (currentUser?.email?.charAt(0) ?? 'A').toUpperCase()
   const selectedEventBungalow =
     bungalows.find((bungalov) => bungalov.id === eventBungalowId) ?? null
   const editingBungalow =
@@ -867,31 +880,77 @@ function App() {
 
     const loadInitialData = async () => {
       try {
-        const [bungalowResponse, reservationResponse] = await Promise.all([
-          requestApi('/api/bungalows'),
-          requestApi('/api/reservations'),
-        ])
-
+        const authResponse = await requestApi('/api/auth/me')
         if (!isMounted) {
           return
         }
 
-        setBungalows(Array.isArray(bungalowResponse.bungalows) ? bungalowResponse.bungalows : [])
-        setCustomEvents(Array.isArray(reservationResponse.reservations) ? reservationResponse.reservations : [])
-        setIsApiConnected(true)
+        setCurrentUser(authResponse.user ?? null)
+        setAuthStatus('authenticated')
+        setLoginError('')
+
+        try {
+          const [bungalowResponse, reservationResponse] = await Promise.all([
+            requestApi('/api/bungalows'),
+            requestApi('/api/reservations'),
+          ])
+
+          if (!isMounted) {
+            return
+          }
+
+          setBungalows(Array.isArray(bungalowResponse.bungalows) ? bungalowResponse.bungalows : [])
+          setCustomEvents(Array.isArray(reservationResponse.reservations) ? reservationResponse.reservations : [])
+          setIsApiConnected(true)
+        } catch (dataError) {
+          if (!isMounted) {
+            return
+          }
+
+          const fallbackAllowed = canUseLocalDemoData()
+          if (fallbackAllowed) {
+            console.error('Turso verisi yüklenemedi. Lokal demo veri ile devam ediliyor.', dataError)
+            setBungalows(INITIAL_BUNGALOWS)
+          } else {
+            console.error('Turso verisi yüklenemedi. Production ortamında demo veri kapalı.', dataError)
+            setBungalows([])
+            setCustomEvents([])
+          }
+          setIsApiConnected(false)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
-        const fallbackAllowed = canUseLocalDemoData()
-        if (fallbackAllowed) {
-          console.error('Turso verisi yüklenemedi. Lokal demo veri ile devam ediliyor.', error)
-          setBungalows(INITIAL_BUNGALOWS)
-        } else {
-          console.error('Turso verisi yüklenemedi. Production ortamında demo veri kapalı.', error)
+        if (error?.status === 401) {
+          setCurrentUser(null)
+          setAuthStatus('unauthenticated')
+          setLoginError('')
           setBungalows([])
           setCustomEvents([])
+          setIsApiConnected(true)
+          return
+        }
+
+        const fallbackAllowed = canUseLocalDemoData()
+        if (fallbackAllowed) {
+          console.error('Auth endpoint ulaşılamadı. Lokal demo veri ile devam ediliyor.', error)
+          setBungalows(INITIAL_BUNGALOWS)
+          setCustomEvents([])
+          setCurrentUser({
+            id: 'local-demo-user',
+            email: 'demo@localhost',
+            role: 'admin',
+          })
+          setAuthStatus('demo')
+        } else {
+          console.error('Auth endpoint erişimi başarısız.', error)
+          setBungalows([])
+          setCustomEvents([])
+          setCurrentUser(null)
+          setAuthStatus('unauthenticated')
+          setLoginError('Sunucu bağlantısı kurulamadı. Lütfen daha sonra tekrar deneyin.')
         }
         setIsApiConnected(false)
       }
@@ -1132,6 +1191,68 @@ function App() {
     }
   }
 
+  const applyUnauthenticatedState = () => {
+    setCurrentUser(null)
+    setAuthStatus('unauthenticated')
+    setIsApiConnected(false)
+    setBungalows([])
+    setCustomEvents([])
+    setIsProfileMenuOpen(false)
+    setIsViewMenuOpen(false)
+    setProfileDropdownPosition(null)
+    setViewDropdownPosition(null)
+    setSelectedRightEventId('')
+    setSelectedBungalowFilterId('')
+  }
+
+  const handleLoginSubmit = async (formEvent) => {
+    formEvent.preventDefault()
+    const email = loginEmail.trim().toLowerCase()
+    const password = loginPassword
+
+    if (!email || !password) {
+      setLoginError('E-posta ve şifre zorunludur.')
+      return
+    }
+
+    setIsLoginSubmitting(true)
+    setLoginError('')
+
+    try {
+      const response = await requestApi('/api/auth/login', {
+        method: 'POST',
+        body: { email, password },
+      })
+
+      setCurrentUser(response.user ?? null)
+      setAuthStatus('authenticated')
+      setLoginPassword('')
+
+      await syncRemoteData()
+    } catch (error) {
+      if (error?.status === 401) {
+        setLoginError('E-posta veya şifre hatalı.')
+      } else {
+        setLoginError(getApiErrorMessage(error, 'Giriş işlemi tamamlanamadı.'))
+      }
+      applyUnauthenticatedState()
+    } finally {
+      setIsLoginSubmitting(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await requestApi('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // no-op: oturum state'i istemcide yine kapatılacak
+    }
+
+    setLoginPassword('')
+    setLoginError('')
+    applyUnauthenticatedState()
+  }
+
   const openBungalowModal = () => {
     setIsEventModalOpen(false)
     setEditingEventId('')
@@ -1367,6 +1488,9 @@ function App() {
         setBungalowName('')
         setNightlyPrice('')
       } catch (error) {
+        if (error?.status === 401) {
+          applyUnauthenticatedState()
+        }
         window.alert(getApiErrorMessage(error, 'Bungalov kaydedilemedi.'))
       }
       return
@@ -1449,6 +1573,9 @@ function App() {
         setBungalowName('')
         setNightlyPrice('')
       } catch (error) {
+        if (error?.status === 401) {
+          applyUnauthenticatedState()
+        }
         window.alert(getApiErrorMessage(error, 'Bungalov silinemedi.'))
       }
       return
@@ -1515,6 +1642,9 @@ function App() {
         setEventCustomerName('')
         setEventDescription('')
       } catch (error) {
+        if (error?.status === 401) {
+          applyUnauthenticatedState()
+        }
         window.alert(getApiErrorMessage(error, 'Rezervasyon kaydedilemedi.'))
       }
       return
@@ -1753,6 +1883,54 @@ function App() {
     </>
   )
 
+  if (authStatus === 'loading') {
+    return (
+      <div className="auth-screen">
+        <section className="auth-card" role="status" aria-live="polite">
+          <h1>Aden | Rezervasyon Takvimi</h1>
+          <p>Sistem yükleniyor...</p>
+        </section>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="auth-screen">
+        <section className="auth-card" aria-label="Giriş Formu">
+          <h1>Aden | Rezervasyon Takvimi</h1>
+          <p>Devam etmek için giriş yapın.</p>
+          <form className="auth-form" onSubmit={handleLoginSubmit}>
+            <label className="auth-field">
+              <span>E-posta</span>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                autoComplete="username"
+                placeholder="admin@adenbungalov.com"
+              />
+            </label>
+            <label className="auth-field">
+              <span>Şifre</span>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="••••••••"
+              />
+            </label>
+            {loginError && <p className="auth-error">{loginError}</p>}
+            <button type="submit" className="auth-submit" disabled={isLoginSubmitting}>
+              {isLoginSubmitting ? 'Giriş Yapılıyor...' : 'Giriş Yap'}
+            </button>
+          </form>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className={`calendar-shell ${isSidebarOpen ? '' : 'sidebar-collapsed'}`}>
       {isSidebarOpen && (
@@ -1935,7 +2113,7 @@ function App() {
                 aria-label="Profil menüsü"
                 aria-expanded={isProfileMenuOpen}
               >
-                0
+                {avatarLabel}
               </button>
               {isProfileMenuOpen &&
                 profileDropdownPosition &&
@@ -1954,7 +2132,12 @@ function App() {
                     <button type="button" className="profile-item" role="menuitem">
                       Ayarlar
                     </button>
-                    <button type="button" className="profile-item profile-item-danger" role="menuitem">
+                    <button
+                      type="button"
+                      className="profile-item profile-item-danger"
+                      role="menuitem"
+                      onClick={handleLogout}
+                    >
                       Çıkış
                     </button>
                   </div>,

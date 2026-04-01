@@ -1,3 +1,4 @@
+import { requireAuth } from '../_lib/auth.js'
 import { getDb, mapBungalowRow } from '../_lib/db.js'
 import { json, methodNotAllowed, readJsonBody } from '../_lib/http.js'
 
@@ -9,6 +10,11 @@ function resolveId(queryId) {
 }
 
 export default async function handler(req, res) {
+  const session = requireAuth(req, res)
+  if (!session) {
+    return
+  }
+
   const id = resolveId(req.query.id).trim()
 
   if (!id) {
@@ -62,8 +68,8 @@ export default async function handler(req, res) {
       })
 
       json(res, 200, { bungalow: mapBungalowRow(rows[0]) })
-    } catch (error) {
-      json(res, 500, { error: 'DB_WRITE_FAILED', message: error.message })
+    } catch {
+      json(res, 500, { error: 'DB_WRITE_FAILED', message: 'Bungalov güncellenemedi.' })
     }
     return
   }
@@ -102,8 +108,8 @@ export default async function handler(req, res) {
       })
 
       json(res, 200, { success: true })
-    } catch (error) {
-      json(res, 500, { error: 'DB_DELETE_FAILED', message: error.message })
+    } catch {
+      json(res, 500, { error: 'DB_DELETE_FAILED', message: 'Bungalov silinemedi.' })
     }
     return
   }

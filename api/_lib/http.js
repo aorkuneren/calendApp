@@ -1,4 +1,8 @@
 export function json(res, statusCode, payload) {
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Referrer-Policy', 'same-origin')
+  res.setHeader('X-Frame-Options', 'DENY')
   res.status(statusCode).json(payload)
 }
 
