@@ -1,0 +1,29 @@
+:root {
+  --app-bg: #f8f9fa;
+  --surface: #ffffff;
+  --line: #dde2e7;
+  --text-main: #202124;
+  --text-muted: #5f6368;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Google Sans', 'Noto Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text-main);
+  background: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
